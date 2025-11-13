@@ -87,7 +87,7 @@ Open `android_app/` in Android Studio Igauana+, plug in a tablet, and run to cap
 
 - Dataset: `mispeech/speechocean762` (score buckets map to `poor`, `moderate`, `good`). Authenticate with `huggingface-cli login` before `make download`.
 - Custom label schemas: pass `LABEL_SCHEMA='{"bad":0,"ok":1,"great":2}'` or edit `config/default.yaml`.
-- Local bilingual snippets: run `python -m src.data.local_recorder --output-dir data/local --label moderate` and re-run `make download`.
+- Local bilingual snippets: run `python -m src.dataset.local_recorder --output-dir data/local --label moderate` and re-run `make download`.
 
 ## Results & Profiling
 

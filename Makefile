@@ -19,14 +19,8 @@ lint:
 clean:
 	rm -rf artifacts outputs __pycache__ */__pycache__
 
-smoke:
-	$(PYTHON) -m pytest tests/test_smoke.py -k tiny
-
-test:
-	$(PYTHON) -m pytest
-
 download:
-	$(PYTHON) -m src.data.download --config $(CONFIG) --data-dir $(DATA_DIR) --output-dir $(OUTPUT_DIR)
+	$(PYTHON) -m src.dataset.download --config $(CONFIG) --data-dir $(DATA_DIR) --output-dir $(OUTPUT_DIR)
 
 features:
 	$(PYTHON) -m src.features.build_features --config $(CONFIG) --data-dir $(DATA_DIR) --output-dir $(OUTPUT_DIR)
