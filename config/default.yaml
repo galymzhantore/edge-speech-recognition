@@ -99,8 +99,6 @@ quantization:
   prune_amount: 0.3
 export:
   onnx_opset: 17
-  tflite_int8: true
-  add_metadata: true
 profile:
   target_device: "android_tablet"
   repetitions: 25
@@ -109,10 +107,3 @@ profile:
 reporting:
   accuracy_drop_threshold: 0.05
   results_dir: results
-android:
-  package_name: "com.example.fluencyscorer"
-  min_sdk: 26
-  target_sdk: 34
-  model_asset: "android_app/app/src/main/assets/model_fluency.tflite"
-  label_map_asset: "android_app/app/src/main/assets/label_map.json"
-  metrics_asset: "android_app/app/src/main/assets/metadata.json"

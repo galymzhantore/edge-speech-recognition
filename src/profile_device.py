@@ -5,7 +5,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import psutil
@@ -14,6 +14,17 @@ from utils.cli import parse_config
 from utils.logging_utils import setup_logger
 
 logger = setup_logger(__name__)
+
+
+def _export_shape(cfg: Dict) -> Tuple[Optional[int], Optional[int]]:
+    summary_path = Path(cfg["data"].get("output_dir", "experiments")) / "exports" / "summary.json"
+    if summary_path.exists():
+        try:
+            data = json.loads(summary_path.read_text())
+            return data.get("freq"), data.get("frames")
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse %s", summary_path)
+    return None, None
 
 
 def load_samples(cfg: Dict, batch_size: int = 8) -> np.ndarray:
@@ -47,7 +58,21 @@ def load_samples(cfg: Dict, batch_size: int = 8) -> np.ndarray:
             pad = np.zeros((feat.shape[0], max_frames - feat.shape[1]), dtype=feat.dtype)
             feat = np.concatenate([feat, pad], axis=1)
         padded.append(feat)
-    return np.stack(padded)
+    samples = np.stack(padded)
+    target_freq, target_frames = _export_shape(cfg)
+    if target_freq and samples.shape[1] != target_freq:
+        if samples.shape[1] > target_freq:
+            samples = samples[:, :target_freq, :]
+        else:
+            pad = np.zeros((samples.shape[0], target_freq - samples.shape[1], samples.shape[2]), dtype=samples.dtype)
+            samples = np.concatenate([samples, pad], axis=1)
+    if target_frames and samples.shape[2] != target_frames:
+        if samples.shape[2] < target_frames:
+            pad = np.zeros((samples.shape[0], samples.shape[1], target_frames - samples.shape[2]), dtype=samples.dtype)
+            samples = np.concatenate([samples, pad], axis=2)
+        else:
+            samples = samples[:, :, :target_frames]
+    return samples
 
 
 def process_memory_mb() -> float:
@@ -72,55 +97,7 @@ def profile_onnx(cfg: Dict, samples: np.ndarray, reps: int) -> Dict:
         "memory_mb": process_memory_mb(),
     }
 
-
-def _tflite_path(cfg: Dict) -> Path:
-    export_dir = Path(cfg["data"].get("output_dir", "experiments")) / "exports"
-    for name in ("model_int8.tflite", "model_fp32.tflite", "model.tflite"):
-        path = export_dir / name
-        if path.exists():
-            return path
-    raise FileNotFoundError("No TFLite artifact found. Run make export_tflite.")
-
-
-def profile_tflite(cfg: Dict, samples: np.ndarray, reps: int) -> Dict:
-    Interpreter = _interpreter()
-    tflite_path = _tflite_path(cfg)
-    interpreter = Interpreter(model_path=str(tflite_path))
-    interpreter.allocate_tensors()
-    input_details = interpreter.get_input_details()[0]
-    output_details = interpreter.get_output_details()[0]
-    latencies = []
-    flat = samples.reshape(samples.shape[0], -1).astype(np.float32)
-    prepared = _quantize_input(flat, input_details)
-    for _ in range(reps):
-        start = time.perf_counter()
-        interpreter.set_tensor(input_details["index"], prepared)
-        interpreter.invoke()
-        _ = interpreter.get_tensor(output_details["index"])
-        latencies.append((time.perf_counter() - start) * 1000)
-    return {
-        "latency_ms": float(np.mean(latencies)),
-        "std_ms": float(np.std(latencies)),
-        "model": f"tflite ({tflite_path.name})",
-        "memory_mb": process_memory_mb(),
-    }
-
-
-def _interpreter():
-    try:
-        from tflite_runtime.interpreter import Interpreter
-    except ImportError:  # pragma: no cover
-        import tensorflow as tf
-
-        Interpreter = tf.lite.Interpreter
-    return Interpreter
-
-
-def _quantize_input(feats: np.ndarray, details: Dict) -> np.ndarray:
-    if details["dtype"] == np.int8:
-        scale, zero_point = details["quantization"]
-        return np.clip(np.round(feats / scale + zero_point), -128, 127).astype(np.int8)
-    return feats.astype(details["dtype"])
+# TFLite profiling removed; ONNX only.
 
 
 def energy_proxy(latency_ms: float, device: str) -> float:
@@ -176,9 +153,8 @@ def main() -> None:
     samples = load_samples(cfg)
     reps = cfg.get("profile", {}).get("repetitions", 20)
     onnx_stats = profile_onnx(cfg, samples, reps)
-    tflite_stats = profile_tflite(cfg, samples, reps)
     target = cfg.get("profile", {}).get("target_device", "pi4")
-    entries = [onnx_stats, tflite_stats]
+    entries = [onnx_stats]
     for stat in entries:
         stat["energy_proxy"] = energy_proxy(stat["latency_ms"], target)
     summary_path = save_profile(entries, cfg)

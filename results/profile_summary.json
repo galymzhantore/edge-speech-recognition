@@ -1,0 +1,12 @@
+{
+  "host": [
+    {
+      "latency_ms": 0.9568666433915496,
+      "std_ms": 1.2511123468815386,
+      "model": "onnx",
+      "memory_mb": 310.6875,
+      "energy_proxy": 1.1482399720698595
+    }
+  ],
+  "android": null
+}

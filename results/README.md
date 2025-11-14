@@ -4,7 +4,7 @@ This directory collects profiler exports, quantization summaries, and the render
 
 ```
 make quantize
-make export_tflite
+make export_onnx
 make convert_android
 make android_profile
 make report

@@ -18,6 +18,7 @@ dist/
 .vscode/
 .idea/
 .experiments/
+experiments/exports/
 experiments/logs/*
 data/
 !data/.gitkeep

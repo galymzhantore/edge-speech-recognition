@@ -7,7 +7,7 @@ TARGET_DEVICE ?= $(DEVICE)
 LABEL_SCHEMA ?= 3class
 CLIP_SECONDS ?= 3
 
-.PHONY: setup download features train_teacher train_student train_plda evaluate_all quantize export_tflite convert_android android_build android_profile profile report lint test smoke clean
+.PHONY: setup download features train_teacher train_student train_plda evaluate_all quantize export_onnx android_profile profile report lint test smoke clean
 
 setup:
 	$(PYTHON) -m pip install --upgrade pip
@@ -40,17 +40,11 @@ evaluate_all:
 quantize:
 	$(PYTHON) -m src.quantize --config $(CONFIG) --output-dir $(OUTPUT_DIR)
 
-export_tflite:
-	$(PYTHON) -m src.export_tflite --config $(CONFIG) --output-dir $(OUTPUT_DIR)
-
-convert_android:
-	$(PYTHON) -m src.convert_to_android --config $(CONFIG) --output-dir $(OUTPUT_DIR)
+export_onnx:
+	$(PYTHON) -m src.export_onnx --config $(CONFIG) --output-dir $(OUTPUT_DIR)
 
 profile:
 	$(PYTHON) -m src.profile_device --config $(CONFIG) --output-dir $(OUTPUT_DIR) --target-device $(TARGET_DEVICE)
-
-android_build:
-	cd android_app && ./gradlew assembleRelease
 
 android_profile:
 	$(PYTHON) -m src.profile_device --config $(CONFIG) --output-dir $(OUTPUT_DIR) --target-device android_tablet

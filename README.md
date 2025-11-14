@@ -1,16 +1,16 @@
 # Edge Fluency Classifier
 
-Edge-ready pipeline for scoring pronunciation/fluency from 1–5 s speech clips, exporting tiny TensorFlow Lite models, and deploying them in an on-device Android app with full profiling hooks.
+Edge-ready pipeline for scoring pronunciation/fluency from 1–5 s speech clips, exporting compact ONNX models, and profiling them on real devices.
 
 ## Highlights
 
 - **Data**: Stream the Speechocean 762 fluency corpus via Hugging Face (with optional locally recorded clips) into deterministic manifests ready for augmentation.
 - **Features**: MFCC/FBANK extraction with CMVN, augmentation (noise, pitch/tempo, RIR), caching, and configurable clip windows.
 - **Models**: Compact MLPs (teacher/student), classical PLDA scoring, optional distillation, multi-metric evaluation, and SNR robustness sweeps.
-- **Quantization**: Dynamic + static INT8 quantization (PyTorch) with accuracy tracking, ONNX export, FP32/INT8 TFLite generation, and metadata packs for Android assets.
-- **Deployment**: Jetpack Compose app with on-device MFCC extraction, AudioRecord capture, selectable clips, live latency/memory/battery logging, and `adb`-retrievable metrics for profiling.
+- **Quantization**: Dynamic + static INT8 quantization (PyTorch) with accuracy tracking and ONNX export.
+- **Profiling**: ADB-based ONNX Runtime benchmarking on Android tablets; host ONNX profiling with summaries saved under `experiments/` and mirrored to `results/`.
 
-## End-to-End Workflow
+## End-to-End Workflow (Deterministic)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -28,12 +28,12 @@ make evaluate_all
 
 # 3) Edge readiness
 make quantize
-make export_tflite
-make convert_android      # copies assets into android_app/
+make export_onnx
 
-# 4) Android + profiling
-make android_build        # requires Android SDK
-make android_profile DEVICE="android_tablet"
+# 4) Profiling
+make profile
+# Optional device run via ADB helper / notebook
+# make android_profile DEVICE="android_tablet"
 
 # 5) Reporting
 make report
@@ -41,16 +41,33 @@ make report
 
 Core parameters (override via env or CLI): `DEVICE/TARGET_DEVICE`, `CLIP_SECONDS`, `LABEL_SCHEMA`, `DATA_DIR`, `OUTPUT_DIR`.
 
+## Reproducible Environment
+
+All commands assume macOS/Linux with Python 3.11. Windows users can run inside WSL.
+
+1. **Clone + auth**
+   ```bash
+   git clone https://github.com/<you>/csci447-final-project.git
+   cd csci447-final-project
+   huggingface-cli login  # required for Speechocean 762
+   ```
+2. **Python environment**
+   ```bash
+   python -m venv .venv && source .venv/bin/activate
+   make setup  # installs project in editable mode
+   ```
+3. **Seed/config control** – every stage reads from `config/default.yaml`; override via `CONFIG=path/to/custom.yaml make ...` to keep experiments versioned.
+
+Generated artifacts (ONNX exports, profiler logs) stay under `experiments/` and are gitignored, so reruns do not pollute history.
+
 ## Repository Layout
 
 ```
 repo_root/
-├── android_app/                   # Android Studio project (Jetpack Compose + TFLite)
 ├── config/default.yaml            # Global configuration
 ├── data/                          # Raw audio + caches (gitignored)
-├── docker/Dockerfile.cpu          # Repro training environment
 ├── experiments/                   # Artifacts (checkpoints, metrics, exports)
-├── notebooks/demo_android_pipeline.ipynb
+├── notebooks/                     # Reproducible Jupyter workflows
 ├── results/                       # Final report + profiler exports
 ├── src/                           # Python library + entrypoints
 ├── Makefile                       # Automation shortcuts
@@ -67,21 +84,24 @@ repo_root/
 | `make train_plda` | Fit a classical PLDA baseline and persist as `plda.joblib`. |
 | `make evaluate_all` | Compute per-split metrics + SNR sweeps with figures under `experiments/`. |
 | `make quantize` | Run dynamic/static INT8 quantization + pruning with accuracy tracking. |
-| `make export_tflite` | Produce ONNX + FP32/INT8 TFLite, label maps, and metadata. |
-| `make convert_android` | Copy latest model + metadata into `android_app/app/src/main/assets/`. |
-| `make android_build` | Assemble the Android app (requires local Android SDK). |
-| `make android_profile` | Pull profiler metrics (host + Android device via `adb`). |
+| `make export_onnx` | Produce ONNX and label maps in `experiments/exports/`. |
+| `make profile` | Host profiling (ONNX + energy proxy). |
+| `make android_profile` | Pull profiler metrics (host + Android via `adb`, optional). |
 | `make report` | Summarize metrics/latency/size into `results.md` and `results/report.md`. |
 
-## Android App (Iguana-ready)
+## Profiling & Deployment
 
-- Kotlin + Jetpack Compose UI (`MainActivity.kt`) with record/select audio flows, prediction cards, and telemetry view.
-- `FeatureExtractor.kt` implements MFCC(+Δ/+ΔΔ) to keep preprocessing on-device.
-- `InferenceHelper.kt` loads the quantized TFLite model, label map, and metadata, returning latency-aware predictions.
-- `MetricsLogger.kt` writes latency/memory/battery snapshots to `files/metrics/latest.json`, allowing `make android_profile` to pull them via `adb shell run-as`.
-- Assets (`model_fluency.tflite`, `label_map.json`, `metadata.json`) are refreshed after `make convert_android`.
+### Host vs Android profiling
 
-Open `android_app/` in Android Studio Igauana+, plug in a tablet, and run to capture profiler traces. Exported screenshots/JSON can be stored under `results/`.
+- `make profile` uses ONNX Runtime to measure latency/memory locally. Inputs are auto-shaped to match the exported ONNX using `experiments/exports/summary.json`.
+- `scripts/adb_benchmark_onnx.sh` pushes the ONNX model plus ONNX Runtime perf binary to a connected tablet, runs the benchmark (`-I` auto-generated inputs) and falls back to generating `test_data_set_0` if needed.
+- A reproducible Jupyter workflow lives in `notebooks/device_profiling_experiments.ipynb`. It automatically:
+  1. Switches to the repo root even if launched elsewhere.
+  2. Ensures `adb` is on `PATH` (checks `ANDROID_SDK_ROOT`, etc.).
+  3. Runs export → host profile → Android profile via the helper script.
+  4. Parses `experiments/profiles/adb_ort_perf.txt`, plots host vs Android latency, and stores a combined JSON summary under `results/`.
+
+To run the perf test manually without the notebook, use `scripts/adb_benchmark_onnx.sh` (auto-pushes model + libs, handles `test_data_set_0` fallback).
 
 ## Data Notes
 
@@ -89,20 +109,12 @@ Open `android_app/` in Android Studio Igauana+, plug in a tablet, and run to cap
 - Custom label schemas: pass `LABEL_SCHEMA='{"bad":0,"ok":1,"great":2}'` or edit `config/default.yaml`.
 - Local bilingual snippets: run `python -m src.dataset.local_recorder --output-dir data/local --label moderate` and re-run `make download`.
 
-## Results & Profiling
+## Results & Reporting
 
 - Quantization summary (`experiments/quantized/summary.json`) tracks size + accuracy deltas for FP32, dynamic, static, and pruned models.
-- Android + host profiling writes CSV/JSON to `experiments/profiles/` and mirrors summaries to `results/profile_summary.json`.
+- Host and ADB-based ONNX profiling writes CSV/JSON to `experiments/profiles/` and mirrors summaries to `results/profile_summary.json`.
+- `results/jupyter_profile_summary.json` is emitted by the reproducibility notebook and includes the raw export summary + parsed benchmarking metrics.
 - `make report` stitches everything into `results.md` + `results/report.md`, including INT8 accuracy drop (goal <5 %), latency (<100 ms/clip), and model size (<10 MB).
-
-## Docker
-
-`docker/Dockerfile.cpu` provisions Python 3.11 with all dependencies, enabling reproducible training/export runs:
-
-```bash
-docker build -t edge-fluency -f docker/Dockerfile.cpu .
-docker run --rm -v $PWD:/workspace edge-fluency bash -lc "make download && make features && make train_teacher"
-```
 
 ## License & Attribution
 
